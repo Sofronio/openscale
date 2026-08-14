@@ -4,6 +4,8 @@
 #include "esp32-hal.h"
 #include "parameter.h"
 #include "timing.h"
+#include "fuel_gauge.h"
+#include "fuel_gauge_menu.h"
 #if HDS_FEATURE_WIFI
 #include "mdns_name.h"
 #include "wifi_setup.h"
@@ -82,6 +84,7 @@ void customBuildRelinkMenu();
 bool customBuildRelinkAvailable();
 #endif
 void showStatus();
+void compactMainMenu();
 void showAbout();
 void showMenu();
 void showLogo();
@@ -130,6 +133,7 @@ const Menu menuInfo = { "Info", NULL, &menuInfoBack, NULL };
 const Menu menuStatus = { "Status", showStatus, NULL, &menuInfo };
 const Menu menuAbout = { "About", showAbout, NULL, &menuInfo };
 const Menu menuLogo = { "Show Logo", showLogo, NULL, &menuDisplay };
+const Menu menuBatInfo = { "Bat. Info", showBatInfo, NULL, NULL };
 #if HDS_ENABLE_GRINDER
 const Menu menuGrinder = { "Grind by weight", NULL, &menuGrinderBack, NULL };
 #endif
@@ -202,6 +206,14 @@ int connectionsMenuSize() {
 #endif
 }
 
+int mainMenuSize() {
+  return getMenuSize(mainMenu) - (b_hasFuelGauge ? 0 : 1);
+}
+
+void compactMainMenu() {
+  if (currentMenu == mainMenu) currentMenuSize = mainMenuSize();
+}
+
 const Menu menuDisplayBack = { "Back", NULL, NULL, &menuDisplay };
 const Menu menuFlipScreen = { menuFlipScreenLabel, toggleFlipScreen, NULL, &menuDisplay };
 const Menu menuTimeOnTop = { menuTimeOnTopLabel, toggleTimeOnTop, NULL, &menuDisplay };
@@ -264,10 +276,11 @@ const Menu *const mainMenu[] = {
   &menuGrinder,
 #endif
   &menuInfo,
+  &menuBatInfo,
 };
 const Menu *const *currentMenu = mainMenu;
 const Menu *currentSelection = mainMenu[0];
-int currentMenuSize = getMenuSize(mainMenu);
+int currentMenuSize = mainMenuSize();
 int currentIndex = 0;
 const int linesPerPage =
   4;
@@ -294,7 +307,7 @@ void exitMenu() {
   b_grinderMenuDirectEntry = false;
 #endif
   currentMenu = mainMenu;
-  currentMenuSize = getMenuSize(mainMenu);
+  currentMenuSize = mainMenuSize();
   currentIndex = 0;
   currentSelection = currentMenu[currentIndex];
   t_menuExitTime = millis();
@@ -1688,7 +1701,7 @@ void backMenu() {
 #endif
   const Menu *origin = currentSelection->parentMenu;
   currentMenu = mainMenu;
-  currentMenuSize = getMenuSize(mainMenu);
+  currentMenuSize = mainMenuSize();
   currentIndex = 0;
   for (int index = 0; index < currentMenuSize; ++index) {
     if (currentMenu[index] == origin) currentIndex = index;
