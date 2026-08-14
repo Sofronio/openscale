@@ -8,6 +8,7 @@
 #include "gyro.h"
 #endif
 #include "espnow.h"
+#include "fuel_gauge.h"
 
 #ifdef ESP32
 #include "driver/rtc_io.h"
@@ -56,6 +57,21 @@ const float adcResolution = 4095.0;
 const float referenceVoltage = 3.3;
 
 const float lowBatteryThreshold = 3.2;
+
+int batteryPercent() {
+  if (b_hasFuelGauge) {
+    return fuelGaugeSocPercent();
+  }
+  int p = map(f_batteryVoltage * 1000, showEmptyBatteryBelowVoltage * 1000,
+              showFullBatteryAboveVoltage * 1000, 0, 100);
+  if (p < 0) {
+    p = 0;
+  }
+  if (p > 100) {
+    p = 100;
+  }
+  return p;
+}
 
 void (*resetFunc)(void) = 0;
 
@@ -457,8 +473,8 @@ float get_bat_voltage() {
 #endif  //CHECKBATTERY
 
 void checkBattery() {
-  float perc = map(f_batteryVoltage * 1000, showEmptyBatteryBelowVoltage * 1000, showFullBatteryAboveVoltage * 1000, 0, 100);
-#if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1)
+  float perc = batteryPercent();
+#if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1) || defined(V9_0_5)
   if (digitalRead(USB_DET) == LOW) {
 #else
   if (digitalRead(BATTERY_CHARGING) == LOW) {

@@ -97,6 +97,8 @@ void toggleTimeOnTop();
 void toggleBtnFuncWhileConnected();
 void toggleAutoSleep();
 void toggleQuickBoot();
+void toggleBatteryProtect();
+void showBatInfo();
 void cycleDriftComp();
 #ifdef ADS1232ADC
 void cycleWakeOnWeight();
@@ -150,6 +152,7 @@ char menuQuickBootLabel[] = "Quick Boot o";
 #ifdef ADS1232ADC
 char menuWakeOnWeightLabel[24] = "WakeOnWeight o";
 #endif
+char menuBatteryProtectLabel[] = "Batt Protect o";
 #if HDS_FEATURE_WIFI
 char menuWifiLabel[] = "WiFi o";
 #endif
@@ -206,13 +209,6 @@ int connectionsMenuSize() {
 #endif
 }
 
-int mainMenuSize() {
-  return getMenuSize(mainMenu) - (b_hasFuelGauge ? 0 : 1);
-}
-
-void compactMainMenu() {
-  if (currentMenu == mainMenu) currentMenuSize = mainMenuSize();
-}
 
 const Menu menuDisplayBack = { "Back", NULL, NULL, &menuDisplay };
 const Menu menuFlipScreen = { menuFlipScreenLabel, toggleFlipScreen, NULL, &menuDisplay };
@@ -233,6 +229,7 @@ const Menu menuQuickBoot = { menuQuickBootLabel, toggleQuickBoot, NULL, &menuPow
 #ifdef ADS1232ADC
 const Menu menuWakeOnWeight = { menuWakeOnWeightLabel, cycleWakeOnWeight, NULL, &menuPower };
 #endif
+const Menu menuBatteryProtect = { menuBatteryProtectLabel, toggleBatteryProtect, NULL, &menuPower };
 #if HDS_ENABLE_ENERGY_MENU
 #include "energy_menu.h"
 #endif
@@ -240,6 +237,7 @@ const Menu *const powerMenu[] = { &menuPowerBack, &menuAutoSleep, &menuQuickBoot
 #ifdef ADS1232ADC
                                   &menuWakeOnWeight,
 #endif
+                                  &menuBatteryProtect,
 #if HDS_ENABLE_ENERGY_MENU
                                   &menuEnergyOledRedraw, &menuEnergyOledIdle,
                                   &menuEnergyLightSleep,
@@ -280,7 +278,19 @@ const Menu *const mainMenu[] = {
 };
 const Menu *const *currentMenu = mainMenu;
 const Menu *currentSelection = mainMenu[0];
+int mainMenuSize() {
+  return getMenuSize(mainMenu) - (b_hasFuelGauge ? 0 : 1);
+}
+
+int powerMenuSize() {
+  return getMenuSize(powerMenu) - (b_hasFuelGauge ? 0 : 1);
+}
+
 int currentMenuSize = mainMenuSize();
+
+void compactMainMenu() {
+  if (currentMenu == mainMenu) currentMenuSize = mainMenuSize();
+}
 int currentIndex = 0;
 const int linesPerPage =
   4;
@@ -581,6 +591,13 @@ void cycleWakeOnWeight() {
   t_actionMessageDelay = 1000;
 }
 #endif
+
+void toggleBatteryProtect() {
+  if (toggleStoredBool(b_batteryProtect, KEY_BAT_PROTECT, "Batt Protect",
+                       menuBatteryProtectLabel)) {
+    fuelGaugeProtectSet(b_batteryProtect);
+  }
+}
 
 void cycleDriftComp() {
   constexpr float values[] = { 0.0f, 0.05f, 0.075f, 0.10f, 0.20f };
@@ -1620,7 +1637,11 @@ void calibrateVoltage() {
   long adcSum = 0;
 
   for (int i = 0; i < numReadings; i++) {
-    adcSum += analogRead(BATTERY_PIN);
+    if (!b_hasFuelGauge) {
+      adcSum += analogRead(BATTERY_PIN);
+    } else {
+      adcSum += (long)(fuelGaugeVoltageV() * 1000.0f);
+    }
     delay(10);
   }
 
@@ -1643,6 +1664,7 @@ void refreshMenuRows() {
   updateToggleLabel(menuFlipScreenLabel, b_screenFlipped);
   updateToggleLabel(menuAutoSleepLabel, b_autoSleep);
   updateToggleLabel(menuQuickBootLabel, b_quickBoot);
+  updateToggleLabel(menuBatteryProtectLabel, b_batteryProtect);
 #ifdef ADS1232ADC
   updateWakeOnWeightLabel();
 #endif
@@ -1727,7 +1749,7 @@ void selectMenu() {
       currentMenuSize = getMenuSize(displayMenu);
     } else if (currentSelection == &menuPower) {
       currentMenu = powerMenu;
-      currentMenuSize = getMenuSize(powerMenu);
+      currentMenuSize = powerMenuSize();
     } else if (currentSelection == &menuInfo) {
       currentMenu = infoMenu;
       currentMenuSize = getMenuSize(infoMenu);
