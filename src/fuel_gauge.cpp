@@ -240,8 +240,37 @@ bool fuelGaugeShouldCutoff() {
          s_snap.socPercent >= PROTECT_CHARGE_LIMIT;
 }
 
+// Read one byte from the gauge's block data memory without entering
+// CFGUPDATE: the library's readExtendedData() unseals, enters config
+// mode and soft-resets the gauge on exit (~0.9 s per byte, and it
+// resets the gauge on every boot). The TRM allows plain block reads.
+static bool readBlockByte(uint8_t subclass, uint8_t offset, uint8_t &value) {
+  uint8_t v = 0x00;
+  i2cWrite(0x61, &v, 1);  // enable block data memory control
+  v = subclass;
+  i2cWrite(0x3E, &v, 1);  // DataBlockClass
+  v = offset / 32;
+  i2cWrite(0x3F, &v, 1);  // DataBlock
+  const uint8_t address = 0x40 + (offset % 32);
+  Wire.beginTransmission(BQ_ADDR);
+  Wire.write(address);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(BQ_ADDR, 1) != 1) {
+    return false;
+  }
+  value = Wire.read();
+  return true;
+}
+
 uint16_t fuelGaugeDesignCapacityMah() {
-  return bq.capacity(DESIGN);
+  uint8_t msb = 0;
+  uint8_t lsb = 0;
+  if (!readBlockByte(82, 6, msb) || !readBlockByte(82, 7, lsb)) {
+    return 0;
+  }
+  return ((uint16_t)msb << 8) | lsb;
 }
 
 bool fuelGaugeSetCapacity(uint16_t mAh) {

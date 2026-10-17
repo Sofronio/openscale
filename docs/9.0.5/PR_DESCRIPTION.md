@@ -125,6 +125,9 @@ All boards run the same firmware binary.
 
 ### Notes
 
+- Bench validation for this revision was performed on HDS 9.0.6 hardware
+  (BQ27427 populated).
+
 - 8.2.0 board: new-NVS migration path was missing the new keys, which
   blocked first boot; fixed (keys are now ensured in the migration path
   too). The board's weighing readouts were erratic without a load cell
