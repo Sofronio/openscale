@@ -3,6 +3,7 @@
 
 #include "ADS1232_ADC.h"
 #include "decent_protocol.h"
+#include "storage.h"
 #include <math.h>
 #include <string.h>
 
@@ -390,6 +391,7 @@ public:
       if (inputString.length() > 2) {
         uint16_t cap = inputString.substring(3).toInt();
         if (fuelGaugeSetCapacity(cap)) {
+          storagePutInt(KEY_BAT_CAPACITY, cap);
           Serial.printf("Battery capacity set to: %u mAh\n", cap);
         } else {
           Serial.println("Invalid capacity (300-2000 mAh)");

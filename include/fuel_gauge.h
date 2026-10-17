@@ -22,6 +22,8 @@ extern volatile bool b_batteryProtect;
 #endif
 
 bool fuelGaugeBegin();
+void fuelGaugeService(bool extended);
+bool fuelGaugeDataValid();
 void fuelGaugeLoop();
 void fuelGaugeProtectSet(bool enable);
 float fuelGaugeVoltageV();

@@ -79,6 +79,7 @@ void showBatInfo() {
   s_showBatInfoBusy = true;
   b_showBatInfoData = true;
   i_batInfoPage = 0;
+  fuelGaugeService(true);
   drawBatInfoPage();
   delay(1000);
   unsigned long t_lastRefresh = millis();
@@ -100,9 +101,11 @@ void showBatInfo() {
       }
     }
     if (millis() - t_lastRefresh >= 500) {
+      fuelGaugeService(true);
       drawBatInfoPage();
       t_lastRefresh = millis();
     }
+    fuelGaugeService(true);
     delay(50);
   }
   s_showBatInfoBusy = false;

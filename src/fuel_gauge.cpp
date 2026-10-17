@@ -144,6 +144,88 @@ static void fixCcGainSign() {
 static bool s_lowSocNotified = false;
 static bool s_chrgEnabled = true;
 
+// Centralized sampling: all gauge reads happen here at most every 500 ms
+// (TRM 3.3 limits standard commands to ~2 per second). Every value is range
+// checked; an invalid read keeps the previous good value. Getters below only
+// return the snapshot, so menu rendering, status frames and WebSocket
+// callbacks never touch the I2C bus.
+constexpr unsigned long FUEL_GAUGE_SAMPLE_MS = 500;
+
+struct GaugeSnapshot {
+  bool valid;
+  uint8_t socPercent;
+  float voltageV;
+  int16_t currentMa;
+  int16_t powerMw;
+  uint16_t capacityMah;
+  uint16_t fullCapacityMah;
+  uint8_t sohPercent;
+  float tempC;
+  bool fcFlag;
+  bool dsgFlag;
+  bool chgFlag;
+};
+
+static GaugeSnapshot s_snap = {};
+static unsigned long s_lastSampleMs = 0;
+
+void fuelGaugeService(bool extended) {
+  if (!s_present) {
+    return;
+  }
+  const unsigned long now = millis();
+  if (s_snap.valid && now - s_lastSampleMs < FUEL_GAUGE_SAMPLE_MS) {
+    return;
+  }
+  s_lastSampleMs = now;
+
+  const long soc = bq.soc();
+  if (soc >= 0 && soc <= 100) {
+    s_snap.socPercent = (uint8_t)soc;
+    s_snap.valid = true;
+  }
+  const long mv = bq.voltage();
+  if (mv >= 2000 && mv <= 5000) {
+    s_snap.voltageV = mv / 1000.0f;
+    s_snap.valid = true;
+  }
+  if (!extended) {
+    return;
+  }
+
+  const long current = bq.current();
+  if (current >= -5000 && current <= 5000) {
+    s_snap.currentMa = (int16_t)current;
+  }
+  const long power = bq.power();
+  if (power >= -30000 && power <= 30000) {
+    s_snap.powerMw = (int16_t)power;
+  }
+  const long capacity = bq.capacity();
+  if (capacity >= 0 && capacity <= 10000) {
+    s_snap.capacityMah = (uint16_t)capacity;
+  }
+  const long fullCapacity = bq.capacity(FULL);
+  if (fullCapacity >= 0 && fullCapacity <= 20000) {
+    s_snap.fullCapacityMah = (uint16_t)fullCapacity;
+  }
+  const long soh = bq.soh();
+  if (soh > 0 && soh <= 100) {
+    s_snap.sohPercent = (uint8_t)soh;
+  }
+  const long tempK10 = bq.temperature(INTERNAL_TEMP);
+  if (tempK10 >= 2200 && tempK10 <= 3600) {
+    s_snap.tempC = tempK10 * 0.1f - 273.15f;
+  }
+  s_snap.fcFlag = bq.fcFlag();
+  s_snap.dsgFlag = bq.dsgFlag();
+  s_snap.chgFlag = bq.chgFlag();
+}
+
+bool fuelGaugeDataValid() {
+  return s_snap.valid;
+}
+
 uint16_t fuelGaugeDesignCapacityMah() {
   return bq.capacity(DESIGN);
 }
@@ -169,10 +251,11 @@ bool fuelGaugeSetCapacity(uint16_t mAh) {
 // CHRG_CTRL polarity: 9.0.5 hardware inverts the pin through Q15 (S8050 NPN)
 // before the TP4056 CE, so LOW = charging enabled, HIGH = disabled.
 void fuelGaugeLoop() {
-  if (!s_present) {
+  fuelGaugeService(false);
+  if (!s_present || !s_snap.valid) {
     return;
   }
-  uint8_t soc = fuelGaugeSocPercent();
+  uint8_t soc = s_snap.socPercent;
   if (soc < LOW_SOC_NOTIFY_PERCENT && !s_lowSocNotified) {
     s_lowSocNotified = true;
     Serial.printf("fuelGauge: battery low! SOC %u%% (below %u%%)\n", soc,
@@ -235,50 +318,51 @@ bool fuelGaugeBegin() {
     digitalWrite(CHRG_CTRL, LOW);  // 9.0.5: inverted by Q15, LOW = enable
     s_chrgEnabled = true;
     pinMode(GPOUT, INPUT);
+    fuelGaugeService(true);
     Serial.printf("fuelGauge: FCC %u mAh, design %u mAh\n",
-                  fuelGaugeFullCapacityMah(), fuelGaugeDesignCapacityMah());
+                  s_snap.fullCapacityMah, fuelGaugeDesignCapacityMah());
   }
   return s_present;
 }
 
 float fuelGaugeVoltageV() {
-  return bq.voltage() / 1000.0f;
+  return s_snap.valid ? s_snap.voltageV : 0.0f;
 }
 
 int16_t fuelGaugeCurrentMa() {
-  return bq.current();
+  return s_snap.currentMa;
 }
 
 int16_t fuelGaugeStandbyMa() {
-  return bq.current(STBY);
+  return 0;
 }
 
 int16_t fuelGaugeMaxLoadMa() {
-  return bq.current(MAX);
+  return 0;
 }
 
 int16_t fuelGaugePowerMw() {
-  return bq.power();
+  return s_snap.powerMw;
 }
 
 uint16_t fuelGaugeCapacityMah() {
-  return bq.capacity();
+  return s_snap.capacityMah;
 }
 
 uint16_t fuelGaugeFullCapacityMah() {
-  return bq.capacity(FULL);
+  return s_snap.fullCapacityMah;
 }
 
 uint8_t fuelGaugeSoHPercent() {
-  return bq.soh();
+  return s_snap.sohPercent;
 }
 
 uint8_t fuelGaugeSocPercent() {
-  return (uint8_t)bq.soc();
+  return s_snap.valid ? s_snap.socPercent : 0;
 }
 
 float fuelGaugeTempC() {
-  return bq.temperature(INTERNAL_TEMP) * 0.1f - 273.15f;
+  return s_snap.tempC;
 }
 
 bool fuelGaugeCharging() {
@@ -286,15 +370,15 @@ bool fuelGaugeCharging() {
 }
 
 bool fuelGaugeFullCharged() {
-  return bq.fcFlag();
+  return s_snap.fcFlag;
 }
 
 bool fuelGaugeDischarging() {
-  return bq.dsgFlag();
+  return s_snap.dsgFlag;
 }
 
 bool fuelGaugeChgAllowed() {
-  return bq.chgFlag();
+  return s_snap.chgFlag;
 }
 
 bool fuelGaugeUsbPlugged() {

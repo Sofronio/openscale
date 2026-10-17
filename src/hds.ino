@@ -929,10 +929,21 @@ void setup() {
   fuelGaugeBegin();
   compactMainMenu();
   b_batteryProtect = storageGetBool(KEY_BAT_PROTECT, false);
-  if (b_hasFuelGauge && !storageGetBool(KEY_BAT_CAPACITY_SET, false)) {
-    if (fuelGaugeSetCapacity(700)) {
+  if (b_hasFuelGauge) {
+    // The gauge reloads ROM defaults after a POR, so persist the capacity
+    // value (not just a flag) and re-apply it whenever the chip disagrees.
+    int storedCapacity = storageGetInt(KEY_BAT_CAPACITY, 0);
+    if (storedCapacity < 300 || storedCapacity > 2000) {
+      storedCapacity = 700;
+      storagePutInt(KEY_BAT_CAPACITY, storedCapacity);
+    }
+    if (fuelGaugeDesignCapacityMah() != (uint16_t)storedCapacity) {
+      Serial.printf("fuelGauge: restoring design capacity %d mAh\n",
+                    storedCapacity);
+      fuelGaugeSetCapacity((uint16_t)storedCapacity);
+    }
+    if (!storageGetBool(KEY_BAT_CAPACITY_SET, false)) {
       storagePutBool(KEY_BAT_CAPACITY_SET, true);
-      Serial.println("fuelGauge: design capacity set once (700 mAh)");
     }
   }
 #ifdef HW_SPI
