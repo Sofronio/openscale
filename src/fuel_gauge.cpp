@@ -1,4 +1,5 @@
 #include "fuel_gauge.h"
+#include "fuel_gauge_validate.h"
 #include "config.h"
 #include <Wire.h>
 #include <BQ27427.h>
@@ -184,51 +185,50 @@ void fuelGaugeService(bool extended) {
 
   const long soc = bq.soc();
   bool freshSoc = false;
-  if (soc >= 0 && soc <= 100) {
+  if (fuelGaugeSocValid(soc)) {
     s_snap.socPercent = (uint8_t)soc;
     s_snap.valid = true;
     freshSoc = true;
   }
   const long mv = bq.voltage();
-  if (mv >= 2000 && mv <= 5000) {
+  if (fuelGaugeVoltageValid(mv)) {
     s_snap.voltageV = mv / 1000.0f;
     s_snap.valid = true;
+  }
+  if (s_snap.valid) {
+    applyBatteryPolicies(s_snap.socPercent);
   }
   if (!extended) {
     return;
   }
 
   const long current = bq.current();
-  if (current >= -5000 && current <= 5000) {
+  if (fuelGaugeCurrentValid(current)) {
     s_snap.currentMa = (int16_t)current;
   }
   const long power = bq.power();
-  if (power >= -30000 && power <= 30000) {
+  if (fuelGaugePowerValid(power)) {
     s_snap.powerMw = (int16_t)power;
   }
   const long capacity = bq.capacity();
-  if (capacity >= 0 && capacity <= 10000) {
+  if (fuelGaugeCapacityValid(capacity)) {
     s_snap.capacityMah = (uint16_t)capacity;
   }
   const long fullCapacity = bq.capacity(FULL);
-  if (fullCapacity >= 0 && fullCapacity <= 20000) {
+  if (fuelGaugeFullCapacityValid(fullCapacity)) {
     s_snap.fullCapacityMah = (uint16_t)fullCapacity;
   }
   const long soh = bq.soh();
-  if (soh > 0 && soh <= 100) {
+  if (fuelGaugeSohValid(soh)) {
     s_snap.sohPercent = (uint8_t)soh;
   }
   const long tempK10 = bq.temperature(INTERNAL_TEMP);
-  if (tempK10 >= 2200 && tempK10 <= 3600) {
+  if (fuelGaugeTempValid(tempK10)) {
     s_snap.tempC = tempK10 * 0.1f - 273.15f;
   }
   s_snap.fcFlag = bq.fcFlag();
   s_snap.dsgFlag = bq.dsgFlag();
   s_snap.chgFlag = bq.chgFlag();
-
-  if (s_snap.valid) {
-    applyBatteryPolicies(s_snap.socPercent);
-  }
 }
 
 bool fuelGaugeDataValid() {
