@@ -7,7 +7,7 @@
 #define BQ_ADDR 0x55
 #define LOW_SOC_NOTIFY_PERCENT 10
 #define PROTECT_CHARGE_LIMIT 80
-#define PROTECT_CHARGE_RESUME 75
+#define PROTECT_CHARGE_RESUME 40
 
 static BQ27427 bq;
 static bool s_present = false;
@@ -261,7 +261,8 @@ bool fuelGaugeSetCapacity(uint16_t mAh) {
 
 // Called periodically from the main loop. Serial-notify once when the SOC
 // drops below 10 %. With battery protection enabled, CHRG_CTRL gates the
-// charger: cut off at 80 %, resume at 75 % (hysteresis).
+// charger, matching the DE1Pro "balanced" policy: cut off at 80 %,
+// resume at 40 % (hysteresis).
 // CHRG_CTRL polarity: 9.0.5 hardware inverts the pin through Q15 (S8050 NPN)
 // before the TP4056 CE, so LOW = charging enabled, HIGH = disabled.
 static void applyBatteryPolicies(uint8_t soc) {
