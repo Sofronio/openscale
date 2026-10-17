@@ -21,9 +21,11 @@ extern volatile bool b_batteryProtect;
 #define FUEL_GAUGE_CHRG_DET 10
 #endif
 
+bool fuelGaugeProbe();
 bool fuelGaugeBegin();
 void fuelGaugeService(bool extended);
 bool fuelGaugeDataValid();
+bool fuelGaugeShouldCutoff();
 void fuelGaugeLoop();
 void fuelGaugeProtectSet(bool enable);
 float fuelGaugeVoltageV();

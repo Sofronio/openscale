@@ -10,6 +10,7 @@
 
 static BQ27427 bq;
 static bool s_present = false;
+static bool s_ready = false;
 
 static void writeControlOnly(uint16_t subcmd) {
   Wire.beginTransmission(BQ_ADDR);
@@ -169,8 +170,10 @@ struct GaugeSnapshot {
 static GaugeSnapshot s_snap = {};
 static unsigned long s_lastSampleMs = 0;
 
+static void applyBatteryPolicies(uint8_t soc);
+
 void fuelGaugeService(bool extended) {
-  if (!s_present) {
+  if (!s_present || !s_ready) {
     return;
   }
   const unsigned long now = millis();
@@ -180,9 +183,11 @@ void fuelGaugeService(bool extended) {
   s_lastSampleMs = now;
 
   const long soc = bq.soc();
+  bool freshSoc = false;
   if (soc >= 0 && soc <= 100) {
     s_snap.socPercent = (uint8_t)soc;
     s_snap.valid = true;
+    freshSoc = true;
   }
   const long mv = bq.voltage();
   if (mv >= 2000 && mv <= 5000) {
@@ -220,10 +225,19 @@ void fuelGaugeService(bool extended) {
   s_snap.fcFlag = bq.fcFlag();
   s_snap.dsgFlag = bq.dsgFlag();
   s_snap.chgFlag = bq.chgFlag();
+
+  if (s_snap.valid) {
+    applyBatteryPolicies(s_snap.socPercent);
+  }
 }
 
 bool fuelGaugeDataValid() {
   return s_snap.valid;
+}
+
+bool fuelGaugeShouldCutoff() {
+  return s_ready && s_snap.valid && b_batteryProtect &&
+         s_snap.socPercent >= PROTECT_CHARGE_LIMIT;
 }
 
 uint16_t fuelGaugeDesignCapacityMah() {
@@ -250,12 +264,7 @@ bool fuelGaugeSetCapacity(uint16_t mAh) {
 // charger: cut off at 80 %, resume at 75 % (hysteresis).
 // CHRG_CTRL polarity: 9.0.5 hardware inverts the pin through Q15 (S8050 NPN)
 // before the TP4056 CE, so LOW = charging enabled, HIGH = disabled.
-void fuelGaugeLoop() {
-  fuelGaugeService(false);
-  if (!s_present || !s_snap.valid) {
-    return;
-  }
-  uint8_t soc = s_snap.socPercent;
+static void applyBatteryPolicies(uint8_t soc) {
   if (soc < LOW_SOC_NOTIFY_PERCENT && !s_lowSocNotified) {
     s_lowSocNotified = true;
     Serial.printf("fuelGauge: battery low! SOC %u%% (below %u%%)\n", soc,
@@ -282,12 +291,32 @@ void fuelGaugeLoop() {
   }
 }
 
+void fuelGaugeLoop() {
+  fuelGaugeService(false);
+}
+
 void fuelGaugeProtectSet(bool enable) {
   b_batteryProtect = enable;
   if (!b_batteryProtect) {
     digitalWrite(CHRG_CTRL, LOW);
     s_chrgEnabled = true;
   }
+}
+
+bool fuelGaugeProbe() {
+  Wire.begin(FUEL_GAUGE_I2C_SDA, FUEL_GAUGE_I2C_SCL);
+  for (int attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) {
+      delay(200);
+    }
+    Wire.beginTransmission(BQ_ADDR);
+    if (Wire.endTransmission() == 0) {
+      b_hasFuelGauge = true;
+      return true;
+    }
+  }
+  b_hasFuelGauge = false;
+  return false;
 }
 
 bool fuelGaugeBegin() {
@@ -308,16 +337,17 @@ bool fuelGaugeBegin() {
   b_hasFuelGauge = s_present;
   if (s_present) {
     Serial.printf("fuelGauge: BQ27427 @0x%02X present\n", BQ_ADDR);
-    if (!enforceChem1202()) {
-      s_present = false;
-      b_hasFuelGauge = false;
-      return false;
-    }
-    fixCcGainSign();
+    pinMode(GPOUT, INPUT);
     pinMode(CHRG_CTRL, OUTPUT);
     digitalWrite(CHRG_CTRL, LOW);  // 9.0.5: inverted by Q15, LOW = enable
     s_chrgEnabled = true;
-    pinMode(GPOUT, INPUT);
+    if (!enforceChem1202()) {
+      s_ready = false;
+      Serial.println("fuelGauge: init FAILED, charging left enabled");
+      return false;
+    }
+    fixCcGainSign();
+    s_ready = true;
     fuelGaugeService(true);
     Serial.printf("fuelGauge: FCC %u mAh, design %u mAh\n",
                   s_snap.fullCapacityMah, fuelGaugeDesignCapacityMah());

@@ -828,13 +828,23 @@ void setup() {
 #endif
   button_init();
   pinMode(BATTERY_CHARGING, INPUT_PULLUP);
+#ifdef ESP32
+  // Probe the gauge before touching GPIO14: on gauge hardware that pin is
+  // the open-drain GPOUT output, not the accessory power rail (review
+  // point: determine the pin role before enabling the output driver).
+  fuelGaugeProbe();
+#endif
 #if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1) || defined(V9_0_5)
   pinMode(USB_DET, INPUT_PULLUP);
   pinMode(OLED_CS, OUTPUT);
   pinMode(OLED_DC, OUTPUT);
   pinMode(SCALE_PDWN, OUTPUT);
   pinMode(SCALE_SCLK, OUTPUT);
-  pinMode(ACC_PWR_CTRL, OUTPUT);
+  if (!b_hasFuelGauge) {
+    pinMode(ACC_PWR_CTRL, OUTPUT);
+  } else {
+    pinMode(GPOUT, INPUT);
+  }
   pinMode(PWR_CTRL, OUTPUT);
 #endif
   print_wakeup_reason();
@@ -879,8 +889,12 @@ void setup() {
   }
   pinMode(PWR_CTRL, OUTPUT);
   digitalWrite(PWR_CTRL, HIGH);
-  pinMode(ACC_PWR_CTRL, OUTPUT);
-  digitalWrite(ACC_PWR_CTRL, HIGH);
+  if (!b_hasFuelGauge) {
+    pinMode(ACC_PWR_CTRL, OUTPUT);
+    digitalWrite(ACC_PWR_CTRL, HIGH);
+  } else {
+    pinMode(GPOUT, INPUT);
+  }
   pinMode(OLED_SDIN, OUTPUT);
   digitalWrite(OLED_SDIN, LOW);
   pinMode(OLED_SCLK, OUTPUT);
@@ -919,10 +933,14 @@ void setup() {
   gpio_hold_dis((gpio_num_t)PWR_CTRL);
 
 #if defined(V7_3) || defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1) || defined(V9_0_5)
-  gpio_hold_dis((gpio_num_t)ACC_PWR_CTRL);
+  if (!b_hasFuelGauge) {
+    gpio_hold_dis((gpio_num_t)ACC_PWR_CTRL);
+  } else {
+    gpio_hold_dis((gpio_num_t)GPOUT);
+  }
 #endif
   gpio_deep_sleep_hold_dis();
-  Serial.println("ACC_PWR_CTRL = HIGH");
+  Serial.println(b_hasFuelGauge ? "GPOUT = INPUT" : "ACC_PWR_CTRL = HIGH");
 #ifdef ESP32
   Wire.begin(I2C_SDA, I2C_SCL);
 #endif
@@ -1619,7 +1637,9 @@ void resetStableOutput() {
 
 bool wakeScaleFromSoftSleep(const char *context) {
   digitalWrite(PWR_CTRL, HIGH);
-  digitalWrite(ACC_PWR_CTRL, HIGH);
+  if (!b_hasFuelGauge) {
+    digitalWrite(ACC_PWR_CTRL, HIGH);
+  }
   delay(5);
   scale.powerUp();
 #if HDS_ENABLE_ENERGY_MENU

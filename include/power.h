@@ -260,8 +260,19 @@ void esp32_sleep() {
   gpio_hold_en((gpio_num_t)I2C_SCL);
   gpio_hold_en((gpio_num_t)I2C_SDA);
 
-  digitalWrite(ACC_PWR_CTRL, LOW);
-  gpio_hold_en((gpio_num_t)ACC_PWR_CTRL);
+  if (!b_hasFuelGauge) {
+    digitalWrite(ACC_PWR_CTRL, LOW);
+    gpio_hold_en((gpio_num_t)ACC_PWR_CTRL);
+  } else {
+    // GPIO14 is the gauge's open-drain GPOUT on 9.0.5 hardware: hold it as
+    // an input, never drive it. Keep the charger enable line latched at the
+    // battery-protect policy state so charging stays gated during sleep.
+    pinMode(GPOUT, INPUT);
+    gpio_hold_en((gpio_num_t)GPOUT);
+    pinMode(CHRG_CTRL, OUTPUT);
+    digitalWrite(CHRG_CTRL, fuelGaugeShouldCutoff() ? HIGH : LOW);
+    gpio_hold_en((gpio_num_t)CHRG_CTRL);
+  }
   digitalWrite(PWR_CTRL, LOW);
   gpio_hold_en((gpio_num_t)PWR_CTRL);
   gpio_deep_sleep_hold_en();
